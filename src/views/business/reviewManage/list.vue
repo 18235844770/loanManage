@@ -80,7 +80,7 @@
 </template>
 
 <script>
-import { getReviewList, reviewLoan } from '@/api/business'
+import { getReviewList, setLoanLimit } from '@/api/business'
 
 const loansStateOptions = [
   { value: 1, code: 'REVIEW', label: '审核中' },
@@ -200,7 +200,7 @@ export default {
         if (err) return
         this.reviewLoading = true
         try {
-          await reviewLoan({ ...values, userId: String(this.reviewTarget.id) })
+          await setLoanLimit({ ...values, userId: String(this.reviewTarget.id) })
           this.$message.success('审核提交成功')
           this.reviewVisible = false
           this.fetch()

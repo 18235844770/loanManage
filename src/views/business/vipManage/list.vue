@@ -166,6 +166,11 @@ const columns = [
     key: 'nickname'
   },
   {
+    title: '手机号',
+    dataIndex: 'phone',
+    key: 'phone'
+  },
+  {
     title: '角色',
     dataIndex: 'roleName',
     key: 'roleName'
