@@ -102,7 +102,7 @@
 </template>
 
 <script>
-import { pendingMessageList, getSessionMessage } from '@/api/business'
+import { pendingMessageList, getSessionMessage, takeSession } from '@/api/business'
 import storage from 'store'
 import { ACCESS_TOKEN } from '@/store/mutation-types'
 
@@ -179,9 +179,13 @@ export default {
         this.loadingSessions = false
       }
     },
+    createTakeSession (sessionId) {
+      takeSession(sessionId)
+    },
     handleSessionSelect (session) {
       const sessionId = this.getSessionId(session)
       if (!sessionId) return
+      this.createTakeSession(sessionId)
       this.selectedSession = session
       if (!this.chatMessagesMap[sessionId]) {
         this.$set(this.chatMessagesMap, sessionId, [])
@@ -333,6 +337,8 @@ export default {
       } catch (e) {
         payload = { content: event.data }
       }
+      payload = payload.message
+      console.log('Received WS message:', payload)
       const sessionId = payload.sessionId || payload.conversationId || payload.chatId || payload.session_id
       if (!sessionId) return
       if (!this.chatMessagesMap[sessionId]) {

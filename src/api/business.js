@@ -76,6 +76,13 @@ export function pendingMessageList (parameter) {
     data: parameter
   })
 }
+export function takeSession (parameter) {
+  return request({
+    url: userApi.chat + '/takeSession',
+    method: 'post',
+    data: parameter
+  })
+}
 /**
  * 入参为 {
  * sessionId: string
