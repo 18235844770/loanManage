@@ -146,72 +146,72 @@ export default {
   methods: {
     i18nRender,
     getMenus () {
-      // getMenuDatas().then(res => {
-      //   console.log('res', res)
-      // }).catch(() => {
-      // })
       const RouteView = {
         name: 'RouteView',
         render: h => h('router-view')
       }
+      // auth 改为 string[] 类型
       const menuList = [
-      {
-        path: '/vipManage',
-        name: 'vipManage',
-        auth: 'ADMIN',
-        component: RouteView,
-        redirect: '/vipManage/list',
-        meta: { title: '账号管理', icon: 'user', permission: ['exception'] },
-        children: [
-          {
-            path: '/vipManage/list',
-            name: 'vipManage',
-            component: () => import(/* webpackChunkName: "fail" */ '@/views/business/vipManage/list'),
-            meta: { title: '账号管理', permission: ['exception'] }
-          }
-        ]
-      },
-      {
-        path: '/chart',
-        name: 'chart',
-        auth: 'ADMIN',
-        component: RouteView,
-        redirect: '/chart/list',
-        meta: { title: '客服', icon: 'user', permission: ['exception'] },
-        children: [
-          {
-            path: '/chart/list',
-            name: 'chart',
-            component: () => import(/* webpackChunkName: "fail" */ '@/views/business/chart/index'),
-            meta: { title: '客服', permission: ['exception'] }
-          }
-        ]
-      },
-      {
-        path: '/reviewManage',
-        name: 'reviewManage',
-        auth: 'ADMIN',
-        component: RouteView,
-        redirect: '/reviewManage/list',
-        meta: { title: '审核管理', icon: 'user', permission: ['exception'] },
-        children: [
-          {
-            path: '/reviewManage/list',
-            name: 'reviewManage',
-            component: () => import(/* webpackChunkName: "fail" */ '@/views/business/reviewManage/list'),
-            meta: { title: '审核管理', permission: ['exception'] }
-          }
-        ]
-      }
-    ]
+        {
+          path: '/vipManage',
+          name: 'vipManage',
+          auth: ['ADMIN'],
+          component: RouteView,
+          redirect: '/vipManage/list',
+          meta: { title: '账号管理', icon: 'user', permission: ['exception'] },
+          children: [
+            {
+              path: '/vipManage/list',
+              name: 'vipManage',
+              component: () => import('@/views/business/vipManage/list'),
+              meta: { title: '账号管理', permission: ['exception'] }
+            }
+          ]
+        },
+        {
+          path: '/chart',
+          name: 'chart',
+          auth: ['ADMIN', 'CUSTOMER_SERVICE'],
+          component: RouteView,
+          redirect: '/chart/list',
+          meta: { title: '客服', icon: 'user', permission: ['exception'] },
+          children: [
+            {
+              path: '/chart/list',
+              name: 'chart',
+              component: () => import('@/views/business/chart/index'),
+              meta: { title: '客服', permission: ['exception'] }
+            }
+          ]
+        },
+        {
+          path: '/reviewManage',
+          name: 'reviewManage',
+          auth: ['ADMIN'],
+          component: RouteView,
+          redirect: '/reviewManage/list',
+          meta: { title: '审核管理', icon: 'user', permission: ['exception'] },
+          children: [
+            {
+              path: '/reviewManage/list',
+              name: 'reviewManage',
+              component: () => import('@/views/business/reviewManage/list'),
+              meta: { title: '审核管理', permission: ['exception'] }
+            }
+          ]
+        }
+      ]
       if (!localStorage.getItem('userInfo')) {
         return
       }
-      const role = JSON.parse(localStorage.getItem('userInfo')).roles
+      const role = JSON.parse(localStorage.getItem('userInfo')).roles || [] // string[]
       console.log('role', role)
-      this.menus = menuList.filter(item => role.includes(item.auth))
+      // 修改匹配规则：item.auth 为数组，任一匹配即可
+      this.menus = menuList.filter(item => Array.isArray(item.auth) && item.auth.some(r => role.includes(r)))
       console.log('this.menu', this.menus)
-      this.$router.replace(this.menus[0].children[0].path)
+      if (this.menus.length && this.menus[0].children && this.menus[0].children.length) {
+        this.$router.replace(this.menus[0].children[0].path)
+      }
     },
     handleMediaQuery (val) {
       this.query = val

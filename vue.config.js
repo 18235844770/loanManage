@@ -62,8 +62,8 @@ const vueConfig = {
       .end()
   },
 
-  publicPath: '/',
-  outputDir: 'ydManage',
+  publicPath: '/loanManage',
+  outputDir: 'loanManage',
 
   css: {
     loaderOptions: {
