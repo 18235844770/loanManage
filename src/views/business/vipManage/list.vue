@@ -2,6 +2,23 @@
   <page-header-wrapper>
     <a-card :bordered="false">
       <div class="table-page-search-wrapper">
+        <a-form layout="inline">
+          <a-form-item>
+            <a-input
+              v-model="searchPhone"
+              placeholder="请输入手机号"
+              allowClear
+              @pressEnter="handleSearch"
+              style="width: 200px"
+            />
+          </a-form-item>
+          <a-form-item>
+            <a-button type="primary" @click="handleSearch">查询</a-button>
+          </a-form-item>
+          <a-form-item>
+            <a-button @click="handleResetSearch">重置</a-button>
+          </a-form-item>
+        </a-form>
       </div>
 
       <div class="table-operator">
@@ -216,6 +233,7 @@ export default {
         name: '普通用户',
         value: 'USER'
       }],
+      searchPhone: '', // 新增：手机号筛选
       captchaBtnText: '获取验证码',
       captchaBtnDisabled: false,
       captchaCountdown: 60,
@@ -242,7 +260,7 @@ export default {
       }
     },
     async getDataList () {
-      const res = await getUserList({})
+      const res = await getUserList(this.searchPhone)
       res.data.forEach(item => {
         if (item.roles.includes('ADMIN')) {
           item.roleName = '超级管理员'
@@ -417,6 +435,13 @@ export default {
     },
     handleSetRoleCancel () {
       this.setRoleVisible = false
+    },
+    handleSearch () {
+      this.getDataList()
+    },
+    handleResetSearch () {
+      this.searchPhone = ''
+      this.getDataList()
     }
   }
 }
