@@ -39,12 +39,12 @@
           <p><strong>ID：</strong>{{ detailRecord.id || '-' }}</p>
           <p><strong>手机号：</strong>{{ detailRecord.phone || '-' }}</p>
           <p><strong>昵称：</strong>{{ detailRecord.nickname || '-' }}</p>
+          <p><strong>银行卡号：</strong>{{ detailRecord.creditCardNumbers || '-' }}</p>
+          <p><strong>身份证：</strong>{{ detailRecord.identitycard || '-' }}</p>
           <p><strong>审核状态：</strong>{{ detailRecord.loanStateText || '-' }}</p>
           <p><strong>贷款额度：</strong>{{ detailRecord.loanLimit != null ? detailRecord.loanLimit : '-' }}</p>
           <p><strong>贷款备注：</strong>{{ detailRecord.loanRemark != null ? detailRecord.loanRemark : '-' }}</p>
-          <p><strong>身份证：</strong>{{ detailRecord.identitycard || '-' }}</p>
           <p><strong>角色：</strong>{{ detailRecord.rolesText || '-' }}</p>
-          <p><strong>在线状态：</strong>{{ detailRecord.onlineStatusText || '-' }}</p>
           <p><strong>状态：</strong>{{ detailRecord.status != null ? detailRecord.status : '-' }}</p>
           <p><strong>创建时间：</strong>{{ detailRecord.createtime || '-' }}</p>
           <p><strong>更新时间：</strong>{{ detailRecord.updatetime || '-' }}</p>
@@ -68,6 +68,9 @@
               <a-select-option value="REVIEW">审核中</a-select-option>
               <a-select-option value="THROUGH">通过</a-select-option>
               <a-select-option value="REJECTED">拒绝</a-select-option>
+              <a-select-option value="RELEASE">放款成功</a-select-option>
+              <a-select-option value="APPLY_RELEASE">申请放款</a-select-option>
+              <a-select-option value="REJECTED_RELEASE">拒绝放款</a-select-option>
             </a-select>
           </a-form-item>
           <a-form-item label="备注">
@@ -85,7 +88,10 @@ import { getReviewList, setLoanLimit } from '@/api/business'
 const loansStateOptions = [
   { value: 1, code: 'REVIEW', label: '审核中' },
   { value: 2, code: 'THROUGH', label: '通过' },
-  { value: 3, code: 'REJECTED', label: '拒绝' }
+  { value: 3, code: 'REJECTED', label: '拒绝' },
+  { value: 4, code: 'RELEASE', label: '放款成功' },
+  { value: 5, code: 'APPLY_RELEASE', label: '申请放款' },
+  { value: 6, code: 'REJECTED_RELEASE', label: '拒绝放款' }
 ]
 
 export default {
@@ -136,9 +142,12 @@ export default {
       return item ? item.label : '-'
     },
     mapLoanState (value) {
-      if (value === 1) return '审核中'
-      if (value === 2) return '通过'
-      if (value === 3) return '拒绝'
+      if (value === 'REVIEW') return '审核中'
+      if (value === 'THROUGH') return '通过'
+      if (value === 'REJECTED') return '拒绝'
+      if (value === 'RELEASE') return '放款成功'
+      if (value === 'APPLY_RELEASE') return '申请放款'
+      if (value === 'REJECTED_RELEASE') return '拒绝放款'
       return '-'
     },
     mapOnlineStatus (value) {
@@ -192,7 +201,7 @@ export default {
       this.reviewVisible = true
       this.$nextTick(() => {
         this.reviewForm.resetFields()
-        this.reviewForm.setFieldsValue({ loanLimit: record.loanLimit, loansSate: 'REVIEW', loansRemark: '' })
+        this.reviewForm.setFieldsValue({ loanLimit: record.loanLimit, loansSate: record.loanState, loansRemark: record.loanRemark })
       })
     },
     submitReview () {

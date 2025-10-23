@@ -260,7 +260,7 @@ export default {
       }
     },
     async getDataList () {
-      const res = await getUserList(this.searchPhone)
+      const res = await getUserList()
       res.data.forEach(item => {
         if (item.roles.includes('ADMIN')) {
           item.roleName = '超级管理员'
