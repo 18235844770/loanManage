@@ -22,7 +22,10 @@
                   @click="handleSessionSelect(session)"
                 >
                   <div class="cs-chat__session-main">
-                    <div class="cs-chat__session-name">{{ getSessionName(session) }}</div>
+                    <div class="cs-chat__session-name">
+                      {{ getSessionName(session) }}
+                      <span v-if="isSessionUnread(getSessionId(session))" class="cs-chat__session-unread-dot"></span>
+                    </div>
                     <div class="cs-chat__session-time">
                       {{ formatTime(session.updatedAt || session.updateTime || session.lastMessageTime || session.createTime) }}
                     </div>
@@ -71,7 +74,18 @@
                       <span class="cs-chat__message-time">{{ formatTime(message.timestamp) }}</span>
                     </div>
                     <div class="cs-chat__message-content">
-                      {{ message.content }}
+                      <template v-if="message.contentObj && message.contentObj.kind === 'image'">
+                        <img
+                          :src="message.contentObj.url"
+                          :alt="message.contentObj.name || '图片'"
+                          class="cs-chat__img"
+                          style="max-width:160px;cursor:pointer"
+                          @click="previewImage(message.contentObj.url)"
+                        />
+                      </template>
+                      <template v-else>
+                        {{ message.contentObj && message.contentObj.text }}
+                      </template>
                     </div>
                   </div>
                 </template>
@@ -85,6 +99,15 @@
                   @pressEnter="handleInputEnter"
                 />
                 <div class="cs-chat__composer-actions">
+                  <a-upload
+                    :showUploadList="false"
+                    accept="image/*"
+                    :beforeUpload="handleBeforeUploadImage"
+                  >
+                    <a-button style="margin-right: 8px">
+                      <a-icon type="picture" /> 发送图片
+                    </a-button>
+                  </a-upload>
                   <a-button type="primary" @click="sendMessage" :disabled="sending || !messageInput.trim()" :loading="sending">
                     发送
                   </a-button>
@@ -105,8 +128,10 @@
 import { pendingMessageList, getSessionMessage, takeSession } from '@/api/business'
 import storage from 'store'
 import { ACCESS_TOKEN } from '@/store/mutation-types'
+import { notification } from 'ant-design-vue' // 新增：通知组件
+import axios from 'axios' // 新增
 
-const WS_URL = 'ws://8.133.23.44/loans/ws/chat'
+const WS_URL = 'ws://115.159.103.201/loans/ws/chat'
 
 export default {
   name: 'CustomerServiceChat',
@@ -124,9 +149,9 @@ export default {
       reconnectAttempts: 0,
       maxReconnectAttempts: 5,
       shouldReconnect: true,
-      currentWsSessionId: null,
+      unreadSessions: {},
       lastConnectUrl: '',
-      // 分页状态映射：每个 sessionId 保存 page/size/hasMore
+      // 分页状态缓存：每个 sessionId 保存 page/size/hasMore
       sessionPaginationMap: {},
       defaultPageSize: 20
     }
@@ -185,6 +210,7 @@ export default {
     handleSessionSelect (session) {
       const sessionId = this.getSessionId(session)
       if (!sessionId) return
+      // 只更新当前选中会话与本地数据，不触发或重建 WebSocket（全局单实例）
       this.createTakeSession(sessionId)
       this.selectedSession = session
       if (!this.chatMessagesMap[sessionId]) {
@@ -193,14 +219,10 @@ export default {
       if (!this.sessionPaginationMap[sessionId]) {
         this.$set(this.sessionPaginationMap, sessionId, { page: 0, size: this.defaultPageSize, hasMore: true, loadingMore: false })
       }
-      // 初次进入加载第一页
       if (this.sessionPaginationMap[sessionId].page === 0) {
         this.fetchSessionMessages(sessionId, 1)
       }
-      if (this.currentWsSessionId !== sessionId) {
-        this.currentWsSessionId = sessionId
-        this.reconnectForSession()
-      }
+      this.clearSessionUnread(sessionId)
       this.$nextTick(this.scrollToBottom)
     },
     async loadMoreMessages () {
@@ -238,10 +260,13 @@ export default {
           }
           const senderId = item.senderId != null ? String(item.senderId) : ''
           const isSelf = senderId && currentUid && senderId === currentUid
+          const rawContent = item.content || item.message || item.body || ''
+          const contentObj = this.normalizeContent(rawContent)
           return {
             id: item.id || `${sessionId}-${ts}-${Math.random().toString(16).slice(2)}`,
             sessionId,
-            content: item.content || item.message || item.body || '',
+            content: JSON.stringify(contentObj),
+            contentObj,
             timestamp: ts,
             sender: isSelf ? '我' : (item.sender || senderId || '用户'),
             senderId,
@@ -273,13 +298,15 @@ export default {
     },
     getSessionName (session) {
       if (!session) return '未知用户'
-      return session.customerName || session.nickname || session.userName || session.username || session.name || session.phone || this.getSessionId(session) || '访客'
+      return session.customerName || session.nickname || session.userName || session.username || session.name || session.phone || this.getSessionId(session) || '客户'
     },
     sessionPreview (session) {
       const sessionId = this.getSessionId(session)
       const list = this.chatMessagesMap[sessionId]
       if (list && list.length) {
-        return list[list.length - 1].content
+        const last = list[list.length - 1]
+        if (last.contentObj?.kind === 'image') return '[图片]'
+        return (last.contentObj && last.contentObj.text) || ''
       }
       return session.lastMessage || session.lastContent || session.preview || '暂无消息'
     },
@@ -293,26 +320,29 @@ export default {
       const mm = d.getMinutes().toString().padStart(2, '0')
       return `${d.getFullYear()}-${m}-${day} ${h}:${mm}`
     },
-    buildWsUrl (sessionId) {
+    buildWsUrl () {
+      // 单一全局连接：不再携带 sessionId，避免因切换会话而需要重建连接
       const token = storage.get(ACCESS_TOKEN) || localStorage.getItem('ACCESS_TOKEN') || ''
       const params = []
       if (token) params.push('token=' + encodeURIComponent(token))
-      if (sessionId) params.push('sessionId=' + encodeURIComponent(sessionId))
       return WS_URL + (params.length ? '?' + params.join('&') : '')
     },
-    reconnectForSession () {
-      this.cleanupWebSocket()
-      this.connectWebSocket()
-    },
     connectWebSocket () {
-      const sessionId = this.selectedSessionId
+      // 仅在首次或断开后重连时调用；handleSessionSelect 不再触发新建
+      const token = storage.get(ACCESS_TOKEN) || localStorage.getItem('ACCESS_TOKEN') || ''
+      if (!token) {
+        console.warn('[WS] 跳过连接：token 缺失')
+        return
+      }
       if (typeof WebSocket === 'undefined') {
         this.$message.error('浏览器不支持 WebSocket')
         return
       }
-      if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return
+      if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+        return
+      }
       this.wsStatus = 'connecting'
-      const url = this.buildWsUrl(sessionId)
+      const url = this.buildWsUrl()
       this.lastConnectUrl = url
       try {
         this.ws = new WebSocket(url)
@@ -335,32 +365,84 @@ export default {
       try {
         payload = typeof payload === 'string' ? JSON.parse(payload) : payload
       } catch (e) {
-        payload = { content: event.data }
+        payload = { message: { content: event.data } }
       }
-      payload = payload.message
-      console.log('Received WS message:', payload)
-      const sessionId = payload.sessionId || payload.conversationId || payload.chatId || payload.session_id
+      const message = payload && payload.message ? payload.message : payload
+      if (!message || typeof message !== 'object') return
+      const msgType = (message.type || '').toString().toUpperCase()
+      if (msgType === 'PONG' || msgType === 'PING') return
+      const sessionId = message.sessionId || message.conversationId || message.chatId || message.session_id
       if (!sessionId) return
       if (!this.chatMessagesMap[sessionId]) {
         this.$set(this.chatMessagesMap, sessionId, [])
       }
       const currentUid = this.getCurrentUserId()
-      const senderId = payload.senderId != null ? String(payload.senderId) : ''
+      const senderId = message.senderId != null ? String(message.senderId) : ''
       const isSelf = senderId && currentUid && senderId === currentUid
+      const rawContent = message.content || message.message || message.body || ''
+      const contentObj = this.normalizeContent(rawContent)
       const msg = {
-        id: payload.id || `${sessionId}-${Date.now()}`,
+        id: message.id || `${sessionId}-${Date.now()}`,
         sessionId,
-        content: payload.content || payload.message || payload.body || '',
-        timestamp: payload.timestamp || payload.createdAt || payload.createTime || Date.now(),
-        sender: isSelf ? '我' : (payload.sender || payload.from || senderId || '用户'),
+        content: JSON.stringify(contentObj),
+        contentObj,
+        timestamp: message.timestamp || message.createdAt || message.createTime || Date.now(),
+        sender: isSelf ? '我' : (message.sender || message.from || senderId || '用户'),
         senderId,
         isSelf,
-        raw: payload
+        raw: message
       }
       this.chatMessagesMap[sessionId].push(msg)
       if (this.selectedSessionId === sessionId) {
+        this.clearSessionUnread(sessionId)
         this.$nextTick(this.scrollToBottom)
+      } else {
+        this.markSessionUnread(sessionId)
       }
+      if (!isSelf) {
+        this.notifyIncomingMessage(msg) // 使用 notification
+      }
+    },
+    normalizeContent (raw) {
+      if (raw == null) return { kind: 'text', text: '' }
+      if (typeof raw === 'object') {
+        // 已是对象
+        if (raw.kind === 'image' && raw.url) {
+          return { kind: 'image', url: raw.url, name: raw.name || '', size: raw.size }
+        }
+        if (raw.kind === 'text' && raw.text != null) {
+          return { kind: 'text', text: String(raw.text) }
+        }
+        if (raw.url && !raw.kind) {
+          return { kind: 'image', url: raw.url, name: raw.name || '', size: raw.size }
+        }
+        if (raw.text != null) return { kind: 'text', text: String(raw.text) }
+        return { kind: 'text', text: JSON.stringify(raw) }
+      }
+      if (typeof raw === 'string') {
+        try {
+          const obj = JSON.parse(raw)
+          return this.normalizeContent(obj)
+        } catch (e) {
+          return { kind: 'text', text: raw }
+        }
+      }
+      return { kind: 'text', text: String(raw) }
+    },
+    markSessionUnread (sessionId) {
+      if (!sessionId || sessionId === this.selectedSessionId) return
+      if (this.unreadSessions[sessionId]) return
+      this.$set(this.unreadSessions, sessionId, true)
+    },
+    clearSessionUnread (sessionId) {
+      if (!sessionId) return
+      if (this.unreadSessions[sessionId]) {
+        this.$delete(this.unreadSessions, sessionId)
+      }
+    },
+    isSessionUnread (sessionId) {
+      if (!sessionId) return false
+      return !!this.unreadSessions[sessionId]
     },
     handleSocketError () {
       this.wsStatus = 'error'
@@ -370,6 +452,9 @@ export default {
       if (this.shouldReconnect) this.scheduleReconnect()
     },
     scheduleReconnect () {
+      // 重连始终只针对这一条全局连接
+      if (!this.shouldReconnect) return
+      if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return
       if (this.reconnectAttempts >= this.maxReconnectAttempts) return
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
       const delay = Math.min(5000, 1000 * Math.pow(2, this.reconnectAttempts))
@@ -404,39 +489,92 @@ export default {
         this.$message.warning('请先选择会话')
         return
       }
-      const content = this.messageInput.trim()
-      if (!content) return
+      const plain = this.messageInput.trim()
+      if (!plain) return
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
         this.$message.error('连接未建立')
         return
       }
+      const contentObj = { kind: 'text', text: plain }
       const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
       const senderId = userInfo.id || userInfo.userId || ''
-      const payload = { sessionId, content, messageType: '1', receiverId: this.selectedSession.userId || null, senderId }
+      const payload = { sessionId, content: JSON.stringify(contentObj), messageType: 1, receiverId: Number(this.selectedSession.userId) || null, senderId }
       this.sending = true
       try {
         this.ws.send(JSON.stringify(payload))
-        const localMsg = {
-          id: `local-${Date.now()}`,
-          sessionId,
-            content,
-            timestamp: Date.now(),
-            sender: '我',
-            senderId: String(senderId),
-            isSelf: true,
-            raw: payload
-        }
-        if (!this.chatMessagesMap[sessionId]) {
-          this.$set(this.chatMessagesMap, sessionId, [])
-        }
-        this.chatMessagesMap[sessionId].push(localMsg)
+        this.appendLocalMessage(sessionId, contentObj, senderId)
         this.messageInput = ''
-        this.$nextTick(this.scrollToBottom)
       } catch (e) {
         this.$message.error('发送失败')
       } finally {
         this.sending = false
+        this.$nextTick(this.scrollToBottom)
       }
+    },
+    appendLocalMessage (sessionId, contentObj, senderId) {
+      const localMsg = {
+        id: `local-${Date.now()}`,
+        sessionId,
+        content: JSON.stringify(contentObj),
+        contentObj,
+        timestamp: Date.now(),
+        sender: '我',
+        senderId: Number(senderId),
+        isSelf: true,
+        raw: contentObj
+      }
+      if (!this.chatMessagesMap[sessionId]) {
+        this.$set(this.chatMessagesMap, sessionId, [])
+      }
+      this.chatMessagesMap[sessionId].push(localMsg)
+    },
+    handleBeforeUploadImage (file) {
+      // 可在此添加大小限制等逻辑
+      this.uploadImageFile(file)
+      return false // 阻止默认上传
+    },
+    async uploadImageFile (file) {
+      const sessionId = this.selectedSessionId
+      if (!sessionId) {
+        this.$message.warning('请先选择会话')
+        return
+      }
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        this.$message.error('连接未建立')
+        return
+      }
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        // 调用后端上传接口 /api/file/image，返回结构假设为 { data: { url: 'https://...' } }
+        const res = await axios.post('/api/file/image', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        })
+        const url = res?.data?.data?.url || res?.data?.url
+        if (!url) {
+          this.$message.error('上传失败，未返回图片地址')
+          return
+        }
+        const contentObj = { kind: 'image', url, name: file.name, size: file.size }
+        const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
+        const senderId = userInfo.id || userInfo.userId || ''
+        const payload = {
+          sessionId,
+          content: JSON.stringify(contentObj),
+          messageType: 2,
+          receiverId: Number(this.selectedSession?.userId) || null,
+          senderId
+        }
+        this.ws.send(JSON.stringify(payload))
+        this.appendLocalMessage(sessionId, contentObj, senderId)
+        this.$nextTick(this.scrollToBottom)
+      } catch (e) {
+        this.$message.error('图片发送失败')
+      }
+    },
+    previewImage (url) {
+      if (!url) return
+      window.open(url, '_blank')
     },
     scrollToBottom () {
       const el = this.$refs.messagesContainer
@@ -450,6 +588,14 @@ export default {
       } catch (e) {
         return ''
       }
+    },
+    notifyIncomingMessage (msg) {
+      const preview = (msg.contentObj && msg.contentObj.text) ? msg.contentObj.text.slice(0, 50) : '收到新消息'
+      notification.open({
+        message: `新消息 - 会话 ${msg.sessionId}`,
+        description: preview,
+        duration: 3
+      })
     }
   }
 }
@@ -457,4 +603,11 @@ export default {
 
 <style scoped lang="less">
 @import url(./index.less);
+
+.cs-chat__img {
+  border: 1px solid #eee;
+  border-radius: 4px;
+  display: block;
+  max-width: 100%;
+}
 </style>

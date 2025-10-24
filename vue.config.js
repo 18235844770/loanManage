@@ -84,14 +84,14 @@ const vueConfig = {
         pathRewrite: { '^/baidu-map': '' }
       },
       '/API': {
-        target: 'http://8.133.23.44/loans',
+        target: 'http://115.159.103.201/loans',
         changeOrigin: true,
         secure: false,
         pathRewrite: { '^/API': '' },
         // ✅ 添加伪造请求头配置
         onProxyReq (proxyReq, req, res) {
-          proxyReq.setHeader('Origin', 'http://8.133.23.44')
-          proxyReq.setHeader('Referer', 'http://8.133.23.44/')
+          proxyReq.setHeader('Origin', 'http://115.159.103.201')
+          proxyReq.setHeader('Referer', 'http://115.159.103.201/')
         },
         onError (err, req, res) {
           console.error('[Proxy Error]', err)

@@ -3,28 +3,36 @@
     <a-card :bordered="false">
       <div class="table-page-search-wrapper">
         <a-form layout="inline">
-          <a-form-item>
-            <a-input
-              v-model="searchPhone"
-              placeholder="请输入手机号"
-              allowClear
-              @pressEnter="handleSearch"
-              style="width: 200px"
-            />
-          </a-form-item>
-          <a-form-item>
-            <a-button type="primary" @click="handleSearch">查询</a-button>
-          </a-form-item>
-          <a-form-item>
-            <a-button @click="handleResetSearch">重置</a-button>
-          </a-form-item>
+          <div class="flex">
+            <a-form-item style="margin-right: 20px;">
+              <a-input
+                v-model="searchPhone"
+                placeholder="请输入手机号"
+                allowClear
+                @pressEnter="handleSearch"
+                style="width: 200px"
+              />
+            </a-form-item>
+            <a-form-item style="margin-right: 20px;">
+              <a-button type="primary" @click="handleSearch">查询</a-button>
+            </a-form-item>
+            <a-form-item>
+              <a-button @click="handleResetSearch">重置</a-button>
+            </a-form-item>
+          </div>
         </a-form>
       </div>
 
       <div class="table-operator">
         <a-button type="primary" icon="plus" @click="handleAdd">新建</a-button>
       </div>
-      <a-table :columns="columns" :data-source="dataList" :rowKey="record => record.id">
+      <a-table
+        :columns="columns"
+        :data-source="dataList"
+        :rowKey="record => record.id"
+        :pagination="pagination"
+        @change="handleTableChange"
+      >
         <span slot="action" slot-scope="text, record">
           <a @click="handleEdit(record)">编辑</a>
           <a-divider type="vertical" />
@@ -222,7 +230,24 @@ export default {
       advanced: false,
       // 查询参数
       queryParam: {},
+      queryState: {
+        params: {
+          page: 1,
+          size: 10,
+          phone: ''
+        },
+        total: 0
+      },
       dataList: [],
+      // 分页器
+      pagination: {
+        current: 1,
+        pageSize: 10,
+        total: 0,
+        showSizeChanger: true,
+        showQuickJumper: true,
+        showTotal: total => `共 ${total} 条`
+      },
       roleOption: [{
         name: '超级管理员',
         value: 'ADMIN'
@@ -260,8 +285,17 @@ export default {
       }
     },
     async getDataList () {
-      const res = await getUserList()
-      res.data.forEach(item => {
+      const params = {
+        page: this.pagination.current,
+        size: this.pagination.pageSize
+      }
+      if (this.searchPhone) {
+        params.phone = this.searchPhone
+      }
+      const res = await getUserList(params)
+      console.log('res', res)
+      const list = res.data.records
+      list.forEach(item => {
         if (item.roles.includes('ADMIN')) {
           item.roleName = '超级管理员'
         } else if (item.roles.includes('CUSTOMER_SERVICE')) {
@@ -270,7 +304,13 @@ export default {
           item.roleName = '普通用户'
         }
       })
-      this.dataList = res.data
+      this.dataList = list
+      this.pagination.total = res.data?.total
+    },
+    handleTableChange (pagination) {
+      this.pagination.current = pagination.current
+      this.pagination.pageSize = pagination.pageSize
+      this.getDataList()
     },
     handleAdd () {
       this.mdl = null
@@ -437,12 +477,20 @@ export default {
       this.setRoleVisible = false
     },
     handleSearch () {
+      this.pagination.current = 1
       this.getDataList()
     },
     handleResetSearch () {
       this.searchPhone = ''
+      this.pagination.current = 1
       this.getDataList()
     }
   }
 }
 </script>
+
+<style>
+.flex{
+  display: flex;
+}
+</style>
