@@ -140,25 +140,6 @@
             </a-select-option>
           </a-select>
         </a-form-item> -->
-        <a-form-item
-          label="验证码"
-          :labelCol="{lg: {span: 7}, sm: {span: 7}}"
-          :wrapperCol="{lg: {span: 10}, sm: {span: 17} }">
-          <a-input
-            v-decorator="[
-              'smsCode',
-              { rules: [{ required: true, message: '请输入验证码' }] }
-            ]"
-            name="smsCode"
-            placeholder="请输入验证码"
-            style="width: 60%; margin-right: 8px;" />
-          <a-button
-            :disabled="captchaBtnDisabled || !form.getFieldValue('phone')"
-            @click="handleSendCode"
-          >
-            {{ captchaBtnText }}
-          </a-button>
-        </a-form-item>
       </a-form>
     </a-modal>
     <a-modal
@@ -182,7 +163,7 @@
 <script>
 import moment from 'moment'
 import { Ellipsis } from '@/components'
-import { getUserList, addUser, updateUser, deleteUser, sendCode, setUserRole } from '@/api/business'
+import { getUserList, addUser, updateUser, deleteUser, setUserRole } from '@/api/business'
 
 const columns = [
   {
@@ -259,9 +240,6 @@ export default {
         value: 'USER'
       }],
       searchPhone: '', // 新增：手机号筛选
-      captchaBtnText: '获取验证码',
-      captchaBtnDisabled: false,
-      captchaCountdown: 60,
       setRoleVisible: false,
       setRoleLoading: false,
       setRoleUser: null,
@@ -328,8 +306,7 @@ export default {
           phone: record.phone,
           password: '', // 编辑时密码一般不回显
           confirmPassword: '',
-          roleId: record.roleId,
-          smsCode: ''
+          roleId: record.roleId
         })
       })
     },
@@ -354,9 +331,8 @@ export default {
       this.form.validateFields((err, values) => {
         if (!err) {
           // 组装 phone 字段
-          const { countyCode, phone, countryAbbr, smsCode, password, nickname } = values
+          const { countyCode, phone, countryAbbr, password, nickname } = values
           const submitData = {
-            smsCode,
             nickname,
             password,
             countyCode: countryAbbr,
@@ -403,49 +379,6 @@ export default {
     resetSearchForm () {
       this.queryParam = {
         date: moment(new Date())
-      }
-    },
-    async handleSendCode () {
-      const phone = this.form.getFieldValue('phone')
-      const countyCode = this.form.getFieldValue('countyCode')
-      const countryAbbr = this.form.getFieldValue('countryAbbr')
-      if (!phone) {
-        this.$message.error('请先输入手机号')
-        return
-      }
-      if (!countyCode) {
-        this.$message.error('请先选择区号')
-        return
-      }
-      this.captchaBtnDisabled = true
-      this.captchaBtnText = `${this.captchaCountdown}s后重试`
-      const timer = setInterval(() => {
-        this.captchaCountdown--
-        this.captchaBtnText = `${this.captchaCountdown}s后重试`
-        if (this.captchaCountdown <= 0) {
-          clearInterval(timer)
-          this.captchaBtnText = '获取验证码'
-          this.captchaBtnDisabled = false
-          this.captchaCountdown = 60
-        }
-      }, 1000)
-      try {
-        const res = await sendCode({ phone: countyCode + phone, countyCode: countryAbbr })
-        if (res.success) {
-          this.$message.success('验证码已发送')
-        } else {
-          this.$message.error('验证码发送失败')
-          clearInterval(timer)
-          this.captchaBtnText = '获取验证码'
-          this.captchaBtnDisabled = false
-          this.captchaCountdown = 60
-        }
-      } catch (e) {
-        this.$message.error('验证码发送失败')
-        clearInterval(timer)
-        this.captchaBtnText = '获取验证码'
-        this.captchaBtnDisabled = false
-        this.captchaCountdown = 60
       }
     },
     handleSetRole (record) {

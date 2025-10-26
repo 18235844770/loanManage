@@ -83,6 +83,15 @@ export function takeSession (parameter) {
     data: parameter
   })
 }
+export function uploadImage (parameter) {
+  return request({
+    url: '/api/file/image',
+    method: 'post',
+    headers: { 'Content-Type': 'multipart/form-data' },
+    noData: true,
+    data: parameter
+  })
+}
 /**
  * 入参为 {
  * sessionId: string

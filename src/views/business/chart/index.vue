@@ -31,7 +31,18 @@
                     </div>
                   </div>
                   <div class="cs-chat__session-preview">
+                    {{ session.sessionId }}
+                  </div>
+                  <div class="cs-chat__session-preview">
                     {{ sessionPreview(session) }}
+                  </div>
+                  <div class="cs-chat__session-extra">
+                    <span class="cs-chat__session-phone">
+                      手机：{{ (session.user && session.user.phone) || session.phone || '无' }}
+                    </span>
+                    <span class="cs-chat__session-nickname">
+                      昵称：{{ (session.user && session.user.nickname) || session.nickname || '未设置' }}
+                    </span>
                   </div>
                 </div>
               </template>
@@ -125,11 +136,10 @@
 </template>
 
 <script>
-import { pendingMessageList, getSessionMessage, takeSession } from '@/api/business'
+import { pendingMessageList, getSessionMessage, takeSession, uploadImage } from '@/api/business'
 import storage from 'store'
 import { ACCESS_TOKEN } from '@/store/mutation-types'
 import { notification } from 'ant-design-vue' // 新增：通知组件
-import axios from 'axios' // 新增
 
 const WS_URL = 'ws://115.159.103.201/loans/ws/chat'
 
@@ -188,11 +198,11 @@ export default {
     this.cleanupWebSocket(true)
   },
   methods: {
-    async fetchPendingSessions () {
+    async fetchPendingSessions (id) {
       if (this.loadingSessions) return
       this.loadingSessions = true
       try {
-        const res = await pendingMessageList()
+        const res = await pendingMessageList(id || '')
         const list = Array.isArray(res) ? res : (res && res.data ? res.data : [])
         this.pendingSessions = list
         if (!this.selectedSessionId && list.length) {
@@ -298,7 +308,8 @@ export default {
     },
     getSessionName (session) {
       if (!session) return '未知用户'
-      return session.customerName || session.nickname || session.userName || session.username || session.name || session.phone || this.getSessionId(session) || '客户'
+      const u = session.user || {}
+      return u.nickname || session.nickname || u.phone || session.phone || session.customerName || session.userName || session.username || session.name || this.getSessionId(session) || '客户'
     },
     sessionPreview (session) {
       const sessionId = this.getSessionId(session)
@@ -323,7 +334,7 @@ export default {
     buildWsUrl () {
       // 单一全局连接：不再携带 sessionId，避免因切换会话而需要重建连接
       const token = storage.get(ACCESS_TOKEN) || localStorage.getItem('ACCESS_TOKEN') || ''
-      const params = []
+      const params = ['userType=2']
       if (token) params.push('token=' + encodeURIComponent(token))
       return WS_URL + (params.length ? '?' + params.join('&') : '')
     },
@@ -359,6 +370,7 @@ export default {
       this.wsStatus = 'connected'
       this.reconnectAttempts = 0
     },
+
     handleSocketMessage (event) {
       let payload = event.data
       if (!payload) return
@@ -367,6 +379,50 @@ export default {
       } catch (e) {
         payload = { message: { content: event.data } }
       }
+
+      // --- 兼容新的事件结构：{ session, type, timestamp } ---
+      const hasNewEnvelope = payload && typeof payload === 'object' && ('session' in payload) && ('type' in payload) && ('timestamp' in payload)
+      if (hasNewEnvelope) {
+        const evtType = String(payload.type || '').toLowerCase()
+        const sess = payload.session || {}
+        const sid = this.getSessionId(sess)
+        if (sid) {
+          // 1) 如果是 new_session：拉取该会话并插入到 pendingSessions 开头
+          if (evtType === 'new_session') {
+            // 直接按 sessionId 拉一次
+            pendingMessageList(sid).then((res) => {
+              const list = Array.isArray(res) ? res : (res && res.data ? res.data : [])
+              // 选出对应项（接口可能返回单个或列表）
+              const incoming = list.find(s => this.getSessionId(s) === sid) || list[0]
+              if (incoming) {
+                // 去重后插入到开头
+                const existIdx = this.pendingSessions.findIndex(s => this.getSessionId(s) === sid)
+                if (existIdx !== -1) this.pendingSessions.splice(existIdx, 1)
+                this.pendingSessions.unshift(incoming)
+                // 标记未读
+                this.markSessionUnread(sid)
+              }
+            }).catch(() => {
+              // 忽略单次失败
+            })
+          } else {
+            // 2) 普通消息：检查是否在 pendingSessions 中；存在则标记，不存在则按要求调用 fetchPendingSessions(sid)
+            const existIdx = this.pendingSessions.findIndex(s => this.getSessionId(s) === sid)
+            if (existIdx !== -1) {
+              this.markSessionUnread(sid)
+              // 可按需更新预览时间等：
+              try {
+                const item = this.pendingSessions[existIdx]
+                item.updatedAt = payload.timestamp || item.updatedAt
+              } catch (_) {}
+            } else {
+              // 仅调用：传入新消息的 sessionId（该方法内部会刷新列表）
+              this.fetchPendingSessions(sid)
+            }
+          }
+        }
+      }
+      // --- 原有消息处理逻辑（保留向消息区追加的能力） ---
       const message = payload && payload.message ? payload.message : payload
       if (!message || typeof message !== 'object') return
       const msgType = (message.type || '').toString().toUpperCase()
@@ -511,6 +567,14 @@ export default {
         this.$nextTick(this.scrollToBottom)
       }
     },
+    getImgUrl (path) {
+      if (!path) return ''
+      // 已经是一个 http(s) URL，可直接返回（假设公共访问，或后端携带鉴权信息在查询参数）
+      if (/^https?:\/\//i.test(path)) return path
+      const proxyServer = 'http://115.159.103.201/loans'
+      const url = proxyServer + '/api/file/view/' + path
+      return url
+    },
     appendLocalMessage (sessionId, contentObj, senderId) {
       const localMsg = {
         id: `local-${Date.now()}`,
@@ -546,22 +610,21 @@ export default {
       try {
         const formData = new FormData()
         formData.append('file', file)
+        formData.append('bizType', 'chat')
         // 调用后端上传接口 /api/file/image，返回结构假设为 { data: { url: 'https://...' } }
-        const res = await axios.post('/api/file/image', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        })
-        const url = res?.data?.data?.url || res?.data?.url
+        const res = await uploadImage(formData)
+        const url = res?.data
         if (!url) {
           this.$message.error('上传失败，未返回图片地址')
           return
         }
-        const contentObj = { kind: 'image', url, name: file.name, size: file.size }
+        const contentObj = { kind: 'image', url: this.getImgUrl(url), name: file.name, size: file.size }
         const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
         const senderId = userInfo.id || userInfo.userId || ''
         const payload = {
           sessionId,
           content: JSON.stringify(contentObj),
-          messageType: 2,
+          messageType: 1,
           receiverId: Number(this.selectedSession?.userId) || null,
           senderId
         }
@@ -597,7 +660,7 @@ export default {
         duration: 3
       })
     }
-  }
+    }
 }
 </script>
 
@@ -609,5 +672,18 @@ export default {
   border-radius: 4px;
   display: block;
   max-width: 100%;
+}
+.cs-chat__session-extra {
+  font-size: 12px;
+  color: #666;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+.cs-chat__session-extra span {
+  max-width: 48%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

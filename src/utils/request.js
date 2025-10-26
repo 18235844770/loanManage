@@ -47,10 +47,12 @@ request.interceptors.request.use(config => {
 
   // 包装请求参数格式
   if (config.data && (config.method === 'post' || config.method === 'put' || config.method === 'patch')) {
-    config.data = {
-      data: config.data,
-      timestamp: Date.now(),
-      version: '1.0' // 可以根据需要动态设置版本号
+    if (!config.noData) {
+      config.data = {
+        data: config.data,
+        timestamp: Date.now(),
+        version: '1.0' // 可以根据需要动态设置版本号
+      }
     }
   }
 
