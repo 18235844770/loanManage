@@ -252,7 +252,7 @@ export default {
         const params = { sessionId, page: String(page), size: String(size) }
         const res = await getSessionMessage(params)
         const data = (res && res.data) ? res.data : res
-        const records = Array.isArray(data?.records) ? data.records : []
+        const records = Array.isArray(data?.records) ? data.records.reverse() : []
         const totalPages = data?.pages != null ? data.pages : (data?.total ? Math.ceil(data.total / size) : 0)
         const hasMore = page < totalPages
         const currentUid = this.getCurrentUserId()
