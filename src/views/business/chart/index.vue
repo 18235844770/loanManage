@@ -102,7 +102,7 @@
                 </template>
                 <a-empty v-else description="暂无消息" />
               </div>
-              <div class="cs-chat__composer">
+              <div class="cs-chat__composer" v-if="sessionInputVisible">
                 <a-textarea
                   :rows="3"
                   v-model="messageInput"
@@ -142,6 +142,7 @@ import { ACCESS_TOKEN } from '@/store/mutation-types'
 import { notification } from 'ant-design-vue' // 新增：通知组件
 
 const WS_URL = 'ws://115.159.103.201/loans/ws/chat'
+const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
 
 export default {
   name: 'CustomerServiceChat',
@@ -152,6 +153,7 @@ export default {
       selectedSession: null,
       chatMessagesMap: {},
       messageInput: '',
+      sessionInputVisible: false,
       sending: false,
       ws: null,
       wsStatus: 'disconnected',
@@ -214,14 +216,40 @@ export default {
         this.loadingSessions = false
       }
     },
-    createTakeSession (sessionId) {
-      takeSession(sessionId)
+    async createTakeSession (sessionId, customerServiceId) {
+      try {
+        console.log('customerServiceId', customerServiceId, userInfo)
+        if (customerServiceId) {
+          if (customerServiceId === userInfo.id) {
+            return true
+          } else {
+            return false
+          }
+        }
+        const res = await takeSession(sessionId)
+        const hasSuccessField = res && Object.prototype.hasOwnProperty.call(res, 'success')
+        const hasCodeField = res && Object.prototype.hasOwnProperty.call(res, 'code')
+        const hasStatusField = res && typeof res?.status === 'string'
+        const normalizedCode = hasCodeField ? String(res.code).toUpperCase() : ''
+        const isCodeSuccess = ['0', '1', '200', 'SUCCESS', 'OK'].includes(normalizedCode)
+        const failedBySuccessFlag = hasSuccessField && res.success !== true
+        const failedByCode = hasCodeField && !isCodeSuccess
+        const failedByStatus = hasStatusField && res.status.toLowerCase() !== 'success'
+        if (failedBySuccessFlag || failedByCode || failedByStatus) {
+          throw new Error((res && (res.message || res.msg)) || '')
+        }
+        return true
+      } catch (error) {
+        const errMsg = error?.response?.data?.message || error?.message || '接入会话失败'
+        this.$message.error(errMsg)
+        return false
+      }
     },
-    handleSessionSelect (session) {
+    async handleSessionSelect (session) {
       const sessionId = this.getSessionId(session)
       if (!sessionId) return
+      this.sessionInputVisible = false
       // 只更新当前选中会话与本地数据，不触发或重建 WebSocket（全局单实例）
-      this.createTakeSession(sessionId)
       this.selectedSession = session
       if (!this.chatMessagesMap[sessionId]) {
         this.$set(this.chatMessagesMap, sessionId, [])
@@ -234,6 +262,10 @@ export default {
       }
       this.clearSessionUnread(sessionId)
       this.$nextTick(this.scrollToBottom)
+      const takeSuccess = await this.createTakeSession(sessionId, session.customerServiceId)
+      if (this.selectedSessionId === sessionId) {
+        this.sessionInputVisible = takeSuccess
+      }
     },
     async loadMoreMessages () {
       const sessionId = this.selectedSessionId
@@ -410,10 +442,13 @@ export default {
             const existIdx = this.pendingSessions.findIndex(s => this.getSessionId(s) === sid)
             if (existIdx !== -1) {
               this.markSessionUnread(sid)
-              // 可按需更新预览时间等：
+              // 更新会话时间并将其置顶
               try {
-                const item = this.pendingSessions[existIdx]
-                item.updatedAt = payload.timestamp || item.updatedAt
+                const sessionItem = this.pendingSessions.splice(existIdx, 1)[0]
+                if (sessionItem) {
+                  sessionItem.updatedAt = payload.timestamp || sessionItem.updatedAt
+                  this.pendingSessions.unshift(sessionItem)
+                }
               } catch (_) {}
             } else {
               // 仅调用：传入新消息的 sessionId（该方法内部会刷新列表）
@@ -552,7 +587,6 @@ export default {
         return
       }
       const contentObj = { kind: 'text', text: plain }
-      const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
       const senderId = userInfo.id || userInfo.userId || ''
       const payload = { sessionId, content: JSON.stringify(contentObj), messageType: 1, receiverId: Number(this.selectedSession.userId) || null, senderId }
       this.sending = true
@@ -619,7 +653,6 @@ export default {
           return
         }
         const contentObj = { kind: 'image', url: this.getImgUrl(url), name: file.name, size: file.size }
-        const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
         const senderId = userInfo.id || userInfo.userId || ''
         const payload = {
           sessionId,
