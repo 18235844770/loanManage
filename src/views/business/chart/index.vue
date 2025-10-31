@@ -137,11 +137,8 @@
 
 <script>
 import { pendingMessageList, getSessionMessage, takeSession, uploadImage } from '@/api/business'
-import storage from 'store'
-import { ACCESS_TOKEN } from '@/store/mutation-types'
-import { notification } from 'ant-design-vue' // 新增：通知组件
+import globalSocket from '@/core/globalSocket'
 
-const WS_URL = 'ws://115.159.103.201/loans/ws/chat'
 const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
 
 export default {
@@ -155,14 +152,10 @@ export default {
       messageInput: '',
       sessionInputVisible: false,
       sending: false,
-      ws: null,
-      wsStatus: 'disconnected',
-      reconnectTimer: null,
-      reconnectAttempts: 0,
-      maxReconnectAttempts: 5,
-      shouldReconnect: true,
+      ws: globalSocket.getSocket() || null,
+      wsStatus: globalSocket.getStatus() || 'disconnected',
+      socketUnsubscribers: [],
       unreadSessions: {},
-      lastConnectUrl: '',
       // 分页状态缓存：每个 sessionId 保存 page/size/hasMore
       sessionPaginationMap: {},
       defaultPageSize: 20
@@ -197,7 +190,7 @@ export default {
     this.connectWebSocket()
   },
   beforeDestroy () {
-    this.cleanupWebSocket(true)
+    this.cleanupWebSocket()
   },
   methods: {
     async fetchPendingSessions (id) {
@@ -216,9 +209,19 @@ export default {
         this.loadingSessions = false
       }
     },
+    /**
+     * 创建/接入客服会话
+     * @param {string} sessionId - 会话ID
+     * @param {string} customerServiceId - 客服ID（可选）
+     * @returns {Promise<boolean>} 成功返回true，失败返回false
+     * @description
+     * 1. 如果提供了customerServiceId，检查是否为当前用户ID，是则返回true，否则返回false
+     * 2. 如果未提供customerServiceId，调用takeSession API接入新会话
+     * 3. 对API响应进行多重校验（success字段、code字段、status字段）
+     * 4. 接入失败时显示错误提示
+     */
     async createTakeSession (sessionId, customerServiceId) {
       try {
-        console.log('customerServiceId', customerServiceId, userInfo)
         if (customerServiceId) {
           if (customerServiceId === userInfo.id) {
             return true
@@ -263,6 +266,7 @@ export default {
       this.clearSessionUnread(sessionId)
       this.$nextTick(this.scrollToBottom)
       const takeSuccess = await this.createTakeSession(sessionId, session.customerServiceId)
+      console.log('takeSuccess', takeSuccess)
       if (this.selectedSessionId === sessionId) {
         this.sessionInputVisible = takeSuccess
       }
@@ -363,44 +367,48 @@ export default {
       const mm = d.getMinutes().toString().padStart(2, '0')
       return `${d.getFullYear()}-${m}-${day} ${h}:${mm}`
     },
-    buildWsUrl () {
-      // 单一全局连接：不再携带 sessionId，避免因切换会话而需要重建连接
-      const token = storage.get(ACCESS_TOKEN) || localStorage.getItem('ACCESS_TOKEN') || ''
-      const params = ['userType=2']
-      if (token) params.push('token=' + encodeURIComponent(token))
-      return WS_URL + (params.length ? '?' + params.join('&') : '')
-    },
     connectWebSocket () {
-      // 仅在首次或断开后重连时调用；handleSessionSelect 不再触发新建
-      const token = storage.get(ACCESS_TOKEN) || localStorage.getItem('ACCESS_TOKEN') || ''
-      if (!token) {
-        console.warn('[WS] 跳过连接：token 缺失')
-        return
+      if (typeof window === 'undefined') return
+      this.cleanupWebSocket()
+      const unsubscribers = []
+      const updateSocketRef = () => {
+        this.ws = globalSocket.getSocket() || null
       }
-      if (typeof WebSocket === 'undefined') {
-        this.$message.error('浏览器不支持 WebSocket')
-        return
-      }
-      if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-        return
-      }
-      this.wsStatus = 'connecting'
-      const url = this.buildWsUrl()
-      this.lastConnectUrl = url
-      try {
-        this.ws = new WebSocket(url)
-        this.ws.onopen = this.handleSocketOpen
-        this.ws.onmessage = this.handleSocketMessage
-        this.ws.onerror = this.handleSocketError
-        this.ws.onclose = this.handleSocketClose
-      } catch (e) {
+      unsubscribers.push(globalSocket.on('status', status => {
+        this.wsStatus = status || 'disconnected'
+        if (status === 'connected') {
+          updateSocketRef()
+        }
+      }))
+      unsubscribers.push(globalSocket.on('open', event => {
+        updateSocketRef()
+        this.handleSocketOpen(event)
+      }))
+      unsubscribers.push(globalSocket.on('message', event => {
+        this.handleSocketMessage(event)
+      }))
+      unsubscribers.push(globalSocket.on('error', event => {
+        this.handleSocketError(event)
+      }))
+      unsubscribers.push(globalSocket.on('close', event => {
+        this.handleSocketClose(event)
+      }))
+      unsubscribers.push(globalSocket.on('reconnect:scheduled', () => {
+        this.wsStatus = 'connecting'
+      }))
+      unsubscribers.push(globalSocket.on('reconnect:failed', () => {
         this.wsStatus = 'error'
-        this.scheduleReconnect()
+      }))
+      this.socketUnsubscribers = unsubscribers
+      updateSocketRef()
+      const currentStatus = globalSocket.getStatus()
+      if (currentStatus) {
+        this.wsStatus = currentStatus
       }
+      globalSocket.ensureConnection()
     },
     handleSocketOpen () {
       this.wsStatus = 'connected'
-      this.reconnectAttempts = 0
     },
 
     handleSocketMessage (event) {
@@ -490,9 +498,6 @@ export default {
       } else {
         this.markSessionUnread(sessionId)
       }
-      if (!isSelf) {
-        this.notifyIncomingMessage(msg) // 使用 notification
-      }
     },
     normalizeContent (raw) {
       if (raw == null) return { kind: 'text', text: '' }
@@ -540,34 +545,17 @@ export default {
     },
     handleSocketClose () {
       this.wsStatus = 'disconnected'
-      if (this.shouldReconnect) this.scheduleReconnect()
+      this.ws = null
     },
-    scheduleReconnect () {
-      // 重连始终只针对这一条全局连接
-      if (!this.shouldReconnect) return
-      if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return
-      if (this.reconnectAttempts >= this.maxReconnectAttempts) return
-      if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
-      const delay = Math.min(5000, 1000 * Math.pow(2, this.reconnectAttempts))
-      this.reconnectAttempts++
-      this.reconnectTimer = setTimeout(() => {
-        this.connectWebSocket()
-      }, delay)
-    },
-    cleanupWebSocket (force) {
-      if (force) this.shouldReconnect = false
-      if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer)
-        this.reconnectTimer = null
+    cleanupWebSocket () {
+      if (Array.isArray(this.socketUnsubscribers) && this.socketUnsubscribers.length) {
+        this.socketUnsubscribers.forEach(unsub => {
+          if (typeof unsub === 'function') {
+            unsub()
+          }
+        })
       }
-      if (this.ws) {
-        this.ws.onopen = null
-        this.ws.onmessage = null
-        this.ws.onerror = null
-        this.ws.onclose = null
-        try { this.ws.close() } catch (e) {}
-        this.ws = null
-      }
+      this.socketUnsubscribers = []
     },
     handleInputEnter (e) {
       if (e.shiftKey) return
@@ -582,7 +570,8 @@ export default {
       }
       const plain = this.messageInput.trim()
       if (!plain) return
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      const socket = globalSocket.getSocket()
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
         this.$message.error('连接未建立')
         return
       }
@@ -591,7 +580,10 @@ export default {
       const payload = { sessionId, content: JSON.stringify(contentObj), messageType: 1, receiverId: Number(this.selectedSession.userId) || null, senderId }
       this.sending = true
       try {
-        this.ws.send(JSON.stringify(payload))
+        const sent = globalSocket.send(payload)
+        if (!sent) {
+          throw new Error('send-failed')
+        }
         this.appendLocalMessage(sessionId, contentObj, senderId)
         this.messageInput = ''
       } catch (e) {
@@ -605,7 +597,7 @@ export default {
       if (!path) return ''
       // 已经是一个 http(s) URL，可直接返回（假设公共访问，或后端携带鉴权信息在查询参数）
       if (/^https?:\/\//i.test(path)) return path
-      const proxyServer = 'http://115.159.103.201/loans'
+      const proxyServer = 'http://cashmoo.cn/loans'
       const url = proxyServer + '/api/file/view/' + path
       return url
     },
@@ -637,7 +629,8 @@ export default {
         this.$message.warning('请先选择会话')
         return
       }
-      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      const socket = globalSocket.getSocket()
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
         this.$message.error('连接未建立')
         return
       }
@@ -661,7 +654,10 @@ export default {
           receiverId: Number(this.selectedSession?.userId) || null,
           senderId
         }
-        this.ws.send(JSON.stringify(payload))
+        const sent = globalSocket.send(payload)
+        if (!sent) {
+          throw new Error('send-failed')
+        }
         this.appendLocalMessage(sessionId, contentObj, senderId)
         this.$nextTick(this.scrollToBottom)
       } catch (e) {
@@ -684,14 +680,6 @@ export default {
       } catch (e) {
         return ''
       }
-    },
-    notifyIncomingMessage (msg) {
-      const preview = (msg.contentObj && msg.contentObj.text) ? msg.contentObj.text.slice(0, 50) : '收到新消息'
-      notification.open({
-        message: `新消息 - 会话 ${msg.sessionId}`,
-        description: preview,
-        duration: 3
-      })
     }
     }
 }

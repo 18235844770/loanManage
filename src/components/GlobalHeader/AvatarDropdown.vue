@@ -53,6 +53,9 @@ export default {
         onOk: () => {
           localStorage.removeItem('ACCESS_TOKEN')
           localStorage.removeItem('user')
+          if (this.$globalSocket) {
+            this.$globalSocket.disconnect()
+          }
           this.$router.push({ path: '/user/login' })
         },
         onCancel () {}

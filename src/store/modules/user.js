@@ -1,6 +1,7 @@
 import storage from 'store'
 import expirePlugin from 'store/plugins/expire'
 import { login } from '@/api/login'
+import globalSocket from '@/core/globalSocket'
 import { ACCESS_TOKEN } from '@/store/mutation-types'
 
 storage.addPlugin(expirePlugin)
@@ -42,6 +43,7 @@ const user = {
           localStorage.setItem('ACCESS_TOKEN', result.data)
           storage.set(ACCESS_TOKEN, result.data, new Date().getTime() + 7 * 24 * 60 * 60 * 1000)
           commit('SET_TOKEN', result.data)
+          globalSocket.connect(true)
           resolve()
         }).catch(error => {
           reject(error)

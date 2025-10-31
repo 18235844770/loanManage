@@ -20,6 +20,7 @@ import './core/lazy_use' // use lazy load components
 import './permission' // permission control
 import './utils/filter' // global filter
 import './global.less' // global style
+import globalSocket from './core/globalSocket'
 
 Vue.config.productionTip = false
 console.log(`当前环境：${process.env.VUE_APP_MODE}`)
@@ -31,6 +32,9 @@ Vue.component('page-container', PageHeaderWrapper)
 Vue.component('page-header-wrapper', PageHeaderWrapper)
 
 window.umi_plugin_ant_themeVar = themePluginConfig.theme
+Vue.prototype.$globalSocket = globalSocket
+
+globalSocket.ensureConnection()
 
 new Vue({
   router,

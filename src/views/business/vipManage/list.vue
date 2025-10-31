@@ -63,6 +63,18 @@
             placeholder="请输入昵称" />
         </a-form-item>
         <a-form-item
+          label="真实姓名"
+          :labelCol="{lg: {span: 7}, sm: {span: 7}}"
+          :wrapperCol="{lg: {span: 10}, sm: {span: 17} }">
+          <a-input
+            v-decorator="[
+              'trueName',
+              {rules: [{ required: false, message: '请输入真实姓名' }]}
+            ]"
+            name="trueName"
+            placeholder="请输入真实姓名" />
+        </a-form-item>
+        <a-form-item
           label="区号"
           :labelCol="{lg: {span: 7}, sm: {span: 7}}"
           :wrapperCol="{lg: {span: 10}, sm: {span: 17} }">
@@ -170,6 +182,11 @@ const columns = [
     title: '用户名',
     dataIndex: 'nickname',
     key: 'nickname'
+  },
+  {
+    title: '真实姓名',
+    dataIndex: 'trueName',
+    key: 'trueName'
   },
   {
     title: '手机号',
@@ -303,6 +320,8 @@ export default {
       // 回显数据
       this.$nextTick(() => {
         this.form.setFieldsValue({
+          nickname: record.nickname,
+          trueName: record.trueName,
           phone: record.phone,
           password: '', // 编辑时密码一般不回显
           confirmPassword: '',
@@ -331,9 +350,10 @@ export default {
       this.form.validateFields((err, values) => {
         if (!err) {
           // 组装 phone 字段
-          const { countyCode, phone, countryAbbr, password, nickname } = values
+          const { countyCode, phone, countryAbbr, password, nickname, trueName } = values
           const submitData = {
             nickname,
+            trueName,
             password,
             countyCode: countryAbbr,
             phone: countyCode + phone

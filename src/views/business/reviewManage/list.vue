@@ -3,6 +3,9 @@
     <a-card :bordered="false">
       <div class="table-page-search-wrapper">
         <a-form layout="inline">
+          <a-form-item label="手机号">
+            <a-input v-model="query.phone" placeholder="请输入手机号" style="width: 200px" allowClear />
+          </a-form-item>
           <a-form-item label="审核状态">
             <a-select v-model="query.loansState" placeholder="请选择状态" style="width: 160px">
               <a-select-option :value="null">全部</a-select-option>
@@ -12,6 +15,7 @@
           <a-form-item>
             <a-button type="primary" @click="handleSearch">查询</a-button>
             <a-button style="margin-left:8px" @click="handleReset">重置</a-button>
+            <a-button style="margin-left:8px" icon="reload" @click="handleRefresh">刷新</a-button>
           </a-form-item>
         </a-form>
       </div>
@@ -101,13 +105,14 @@ export default {
       loading: false,
       dataSource: [],
       query: {
-        pageSize: 10,
-        pageNo: 1,
+        size: 10,
+        page: 1,
+        phone: '',
         loansState: null
       },
       pagination: {
         current: 1,
-        pageSize: 10,
+        size: 10,
         total: 0,
         showSizeChanger: true,
         showQuickJumper: true,
@@ -161,8 +166,8 @@ export default {
         const params = { ...this.query }
         const res = await getReviewList(params)
         // 根据真实返回结构调整，这里假设 res.data.list & res.data.total
-        const list = res.data?.list || res.data || []
-        const total = res.data?.total || list.length || 0
+        const list = res.data?.records
+        const total = res.data?.total
         this.dataSource = list
         this.pagination.total = total
       } catch (e) {
@@ -172,19 +177,24 @@ export default {
       }
     },
     handleSearch () {
-      this.query.pageNo = 1
+      this.query.page = 1
       this.pagination.current = 1
       this.fetch()
     },
     handleReset () {
+      this.query.phone = ''
       this.query.loansState = null
       this.handleSearch()
     },
+    handleRefresh () {
+      this.fetch()
+      this.$message.success('刷新成功')
+    },
     handleTableChange (pager) {
-      this.query.pageNo = pager.current
-      this.query.pageSize = pager.pageSize
+      this.query.page = pager.current
+      this.query.size = pager.size
       this.pagination.current = pager.current
-      this.pagination.pageSize = pager.pageSize
+      this.pagination.size = pager.size
       this.fetch()
     },
     handleView (record) {
