@@ -44,6 +44,11 @@
                       昵称：{{ (session.user && session.user.nickname) || session.nickname || '未设置' }}
                     </span>
                   </div>
+                  <div class="cs-chat__session-extra">
+                    <span class="cs-chat__session-phone">
+                      真实姓名：{{ session.trueName || '未设置' }}
+                    </span>
+                  </div>
                 </div>
               </template>
               <a-empty v-else description="暂无待接入会话" />
@@ -102,7 +107,7 @@
                 </template>
                 <a-empty v-else description="暂无消息" />
               </div>
-              <div class="cs-chat__composer" v-if="sessionInputVisible">
+              <div class="cs-chat__composer">
                 <a-textarea
                   :rows="3"
                   v-model="messageInput"
@@ -243,8 +248,8 @@ export default {
         }
         return true
       } catch (error) {
-        const errMsg = error?.response?.data?.message || error?.message || '接入会话失败'
-        this.$message.error(errMsg)
+        // const errMsg = error?.response?.data?.message || error?.message || '接入会话失败'
+        // this.$message.error(errMsg)
         return false
       }
     },

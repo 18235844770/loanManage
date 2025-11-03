@@ -263,7 +263,7 @@ class GlobalSocket {
     notification.info({
       message: '新会话待接入',
       description: `会话编号：${sessionId}，用户：${name}`,
-      duration: 3
+      duration: 0
     })
   }
 
@@ -292,15 +292,15 @@ class GlobalSocket {
     notification.info({
       message: title,
       description: preview,
-      duration: 3
+      duration: 0
     })
   }
 
   notifyNewApply (payload) {
     console.log('payload', payload)
     if (!payload || typeof payload !== 'object') return
-    const record = payload.record || payload.data || {}
-    const bizId = record.user.userId
+    const record = payload
+    const bizId = record.user.id
     const applicant = record.loansNum || ''
     const phone = record.user.phone || ''
     const trueName = record.user.trueName || ''
@@ -318,7 +318,7 @@ class GlobalSocket {
     notification.info({
       message: title,
       description,
-      duration: 3
+      duration: 0
     })
   }
 

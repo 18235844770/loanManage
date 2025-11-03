@@ -3,20 +3,29 @@
     <a-card :bordered="false">
       <div class="table-page-search-wrapper">
         <a-form layout="inline">
-          <a-form-item label="手机号">
-            <a-input v-model="query.phone" placeholder="请输入手机号" style="width: 200px" allowClear />
-          </a-form-item>
-          <a-form-item label="审核状态">
-            <a-select v-model="query.loansState" placeholder="请选择状态" style="width: 160px">
-              <a-select-option :value="null">全部</a-select-option>
-              <a-select-option v-for="item in loansStateOptions" :key="item.value" :value="item.value">{{ item.label }}</a-select-option>
-            </a-select>
-          </a-form-item>
-          <a-form-item>
-            <a-button type="primary" @click="handleSearch">查询</a-button>
-            <a-button style="margin-left:8px" @click="handleReset">重置</a-button>
-            <a-button style="margin-left:8px" icon="reload" @click="handleRefresh">刷新</a-button>
-          </a-form-item>
+          <div class="flex">
+            <div class="flex-item">
+
+              <a-form-item class="flex-item" label="手机号">
+                <a-input v-model="query.phone" placeholder="请输入手机号" style="width: 200px" allowClear />
+              </a-form-item>
+            </div>
+            <div class="flex-item">
+              <a-form-item class="flex-item" label="审核状态">
+                <a-select v-model="query.loansState" placeholder="请选择状态" style="width: 160px">
+                  <a-select-option :value="null">全部</a-select-option>
+                  <a-select-option v-for="item in loansStateOptions" :key="item.value" :value="item.value">{{ item.label }}</a-select-option>
+                </a-select>
+              </a-form-item>
+            </div>
+            <div class="flex-item">
+              <a-form-item class="flex-item">
+              <a-button type="primary" @click="handleSearch">查询</a-button>
+                <a-button style="margin-left:8px" @click="handleReset">重置</a-button>
+                <a-button style="margin-left:8px" icon="reload" @click="handleRefresh">刷新</a-button>
+              </a-form-item>
+            </div>
+          </div>
         </a-form>
       </div>
 
@@ -243,4 +252,10 @@ export default {
 <style scoped>
 .table-page-search-wrapper { margin-bottom: 16px; }
 .detail-wrapper { max-height: 60vh; overflow-y: auto; padding-right: 4px; }
+.flex{
+  display: flex;
+}
+.flex-item{
+  margin-right: 20px;
+}
 </style>

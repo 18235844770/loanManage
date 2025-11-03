@@ -187,7 +187,7 @@ export default {
         {
           path: '/reviewManage',
           name: 'reviewManage',
-          auth: ['ADMIN'],
+          auth: ['ADMIN', 'CUSTOMER_SERVICE'],
           component: RouteView,
           redirect: '/reviewManage/list',
           meta: { title: '审核管理', icon: 'user', permission: ['exception'] },
