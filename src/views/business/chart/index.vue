@@ -204,15 +204,134 @@ export default {
       try {
         const res = await pendingMessageList(id || '')
         const list = Array.isArray(res) ? res : (res && res.data ? res.data : [])
-        this.pendingSessions = list
-        if (!this.selectedSessionId && list.length) {
-          this.handleSessionSelect(list[0])
+        const filtered = this.normalizePendingSessions(list)
+        const currentId = this.selectedSessionId
+        this.pendingSessions = filtered
+        if (!filtered.length) {
+          this.selectedSession = null
+          return
+        }
+        if (!currentId) {
+          this.handleSessionSelect(filtered[0])
+          return
+        }
+        const matched = filtered.find(session => this.getSessionId(session) === currentId)
+        if (matched) {
+          this.selectedSession = matched
+        } else {
+          this.handleSessionSelect(filtered[0])
         }
       } catch (e) {
         this.$message.error('加载会话列表失败')
       } finally {
         this.loadingSessions = false
       }
+    },
+    normalizePendingSessions (list) {
+      if (!Array.isArray(list)) return []
+      const userMap = new Map()
+      const noUserSessions = []
+      list.forEach((session, index) => {
+        const userId = this.resolveUserIdFromSession(session)
+        const timestamp = this.resolveUpdateTime(session)
+        const marker = { session, timestamp, index }
+        if (!userId) {
+          noUserSessions.push(marker)
+          return
+        }
+        const existing = userMap.get(userId)
+        if (!existing || timestamp > existing.timestamp || (timestamp === existing.timestamp && index > existing.index)) {
+          userMap.set(userId, marker)
+        }
+      })
+      const combined = [...userMap.values(), ...noUserSessions]
+      combined.sort((a, b) => {
+        if (b.timestamp === a.timestamp) {
+          return a.index - b.index
+        }
+        return b.timestamp - a.timestamp
+      })
+      return combined.map(entry => entry.session)
+    },
+    resolveUserIdFromSession (session) {
+      if (!session || typeof session !== 'object') return ''
+      const nestedUser = session.user || session.customer || session.account || {}
+      const candidates = [
+        session.userId,
+        session.customerId,
+        session.uid,
+        session.user_id,
+        session.customerUserId,
+        session.memberId,
+        session.memberID,
+        nestedUser.userId,
+        nestedUser.id,
+        nestedUser.uid,
+        nestedUser.ID
+      ]
+      const found = candidates.find(value => value !== undefined && value !== null && value !== '')
+      return found != null ? String(found) : ''
+    },
+    resolveUpdateTime (session) {
+      if (!session || typeof session !== 'object') return 0
+      const candidates = [
+        session.updatetime,
+        session.updateTime,
+        session.updatedAt,
+        session.updated_at,
+        session.lastMessageTime,
+        session.lastMessageAt,
+        session.lastActiveTime,
+        session.lastMsgTime,
+        session.last_message_time,
+        session.createTime,
+        session.createAt,
+        session.createdAt,
+        session.timestamp
+      ]
+      for (const value of candidates) {
+        const ts = this.parseTimestamp(value)
+        if (ts) return ts
+      }
+      const nestedUser = session.user || session.customer || {}
+      const nestedCandidates = [
+        nestedUser.updatetime,
+        nestedUser.updateTime,
+        nestedUser.updatedAt,
+        nestedUser.updated_at,
+        nestedUser.lastActiveTime,
+        nestedUser.createTime,
+        nestedUser.createdAt,
+        nestedUser.timestamp
+      ]
+      for (const value of nestedCandidates) {
+        const ts = this.parseTimestamp(value)
+        if (ts) return ts
+      }
+      return 0
+    },
+    parseTimestamp (value) {
+      if (value == null) return 0
+      if (value instanceof Date) return value.getTime()
+      if (typeof value === 'number') {
+        if (value > 1e12) return value
+        if (value > 1e9) return value * 1000
+        return value
+      }
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (!trimmed) return 0
+        if (/^\d+$/.test(trimmed)) {
+          const numeric = Number(trimmed)
+          if (numeric > 1e12) return numeric
+          if (numeric > 1e9) return numeric * 1000
+          return numeric
+        }
+        const normalized = trimmed.replace(/-/g, '/')
+        const date = new Date(normalized)
+        if (!isNaN(date.getTime())) return date.getTime()
+      }
+      return 0
     },
     /**
      * 创建/接入客服会话
@@ -686,7 +805,7 @@ export default {
         return ''
       }
     }
-    }
+  }
 }
 </script>
 
